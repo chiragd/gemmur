@@ -46,9 +46,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         hotkey.onKeyUp = {
             NSLog("[Gemmur] Fn key UP detected")
-            let samples = capture.stopRecording()
+            var samples = capture.stopRecording()
             hud.hide()
-            Task { await self.handleTranscription(samples: samples) }
+            Task {
+                await self.handleTranscription(samples: samples)
+                samples = []  // release backing buffer as soon as transcription is done
+            }
         }
 
         // Apply saved hotkey selection before starting
@@ -61,15 +64,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: - Transcription
 
-    private func handleTranscription(samples: [Float]) async {
+    private func handleTranscription(samples: consuming [Float]) async {
         guard !samples.isEmpty else { return }
         let settings = AppSettings.shared
         let backend = OllamaBackend(model: settings.model.rawValue)
-        print("[Gemmur] Captured \(samples.count) samples (\(String(format: "%.1f", Double(samples.count) / 16_000))s) — transcribing with \(settings.model.rawValue)…")
+        NSLog("[Gemmur] Captured %d samples (%.1fs) — transcribing…",
+              samples.count, Double(samples.count) / 16_000)
 
         do {
             let transcript = try await backend.transcribe(
-                audio: samples,
+                audio: consume samples,   // transfer ownership; buffer freed before Ollama call returns
                 systemPrompt: settings.tone.systemPrompt
             )
             print("[Gemmur] Transcript: \(transcript)")

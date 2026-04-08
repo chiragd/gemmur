@@ -60,7 +60,13 @@ final class AudioCaptureEngine: ObservableObject {
         }
 
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
-            self?.processTap(buffer: buffer, converter: converter, targetFormat: targetFormat)
+            // This closure runs on the AVAudioEngine's internal audio thread — never touch
+            // @MainActor state here. Do all conversion work inline (nonisolated), then
+            // dispatch only the resulting [Float] to main for safe append.
+            guard let newSamples = AudioCaptureEngine.convert(buffer: buffer,
+                                                              using: converter,
+                                                              to: targetFormat) else { return }
+            DispatchQueue.main.async { self?.samples.append(contentsOf: newSamples) }
         }
 
         engine.prepare()
@@ -84,8 +90,8 @@ final class AudioCaptureEngine: ObservableObject {
         isRecording = false
         elapsedSeconds = 0
 
-        let result = samples
-        samples.removeAll(keepingCapacity: true)
+        var result: [Float] = []
+        swap(&result, &samples)   // zero-copy hand-off; samples is now empty with no retained capacity
         return result
     }
 
@@ -107,20 +113,17 @@ final class AudioCaptureEngine: ObservableObject {
         }
     }
 
-    /// Called from the AVAudioEngine tap (background thread). Converts to 16 kHz mono float32
-    /// and appends to the sample buffer on the main actor.
-    private func processTap(
+    /// Pure conversion — no actor isolation, safe to call from any thread.
+    private static func convert(
         buffer: AVAudioPCMBuffer,
-        converter: AVAudioConverter,
-        targetFormat: AVAudioFormat
-    ) {
+        using converter: AVAudioConverter,
+        to targetFormat: AVAudioFormat
+    ) -> [Float]? {
         let ratio = targetFormat.sampleRate / buffer.format.sampleRate
-        let outputFrameCapacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * ratio))
+        let capacity = AVAudioFrameCount(ceil(Double(buffer.frameLength) * ratio))
 
-        guard let converted = AVAudioPCMBuffer(
-            pcmFormat: targetFormat,
-            frameCapacity: outputFrameCapacity
-        ) else { return }
+        guard let converted = AVAudioPCMBuffer(pcmFormat: targetFormat, frameCapacity: capacity)
+        else { return nil }
 
         var inputProvided = false
         var conversionError: NSError?
@@ -137,14 +140,9 @@ final class AudioCaptureEngine: ObservableObject {
 
         guard conversionError == nil,
               converted.frameLength > 0,
-              let channelData = converted.floatChannelData?[0] else { return }
+              let channelData = converted.floatChannelData?[0] else { return nil }
 
-        let count = Int(converted.frameLength)
-        let newSamples = Array(UnsafeBufferPointer(start: channelData, count: count))
-
-        DispatchQueue.main.async { [weak self] in
-            self?.samples.append(contentsOf: newSamples)
-        }
+        return Array(UnsafeBufferPointer(start: channelData, count: Int(converted.frameLength)))
     }
 
     // MARK: - Errors
