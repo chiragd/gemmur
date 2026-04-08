@@ -33,6 +33,7 @@ targets:
         LSUIElement: true
         NSMicrophoneUsageDescription: "Gemmur needs the microphone to capture your speech for transcription."
         NSAccessibilityUsageDescription: "Gemmur needs Accessibility access to insert transcribed text into other apps."
+        NSAppleEventsUsageDescription: "Gemmur uses System Events to paste transcribed text into apps like Chrome and Terminal."
         LSApplicationCategoryType: public.app-category.productivity
     settings:
       base:

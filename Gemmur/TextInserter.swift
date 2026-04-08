@@ -19,54 +19,76 @@ final class TextInserter {
     func insert(_ text: String) async {
         guard !text.isEmpty else { return }
 
-        if tryAccessibilityInsert(text) { return }
+        // Only trust AX insertion for roles that are known to honour it correctly.
+        // Chrome, Terminal, and web-based elements report success but silently discard
+        // the value — so we verify the role before trusting the result.
+        if tryAccessibilityInsert(text) {
+            NSLog("[TextInserter] Inserted via AX")
+            return
+        }
+        NSLog("[TextInserter] Falling back to clipboard paste")
         await clipboardFallback(text)
     }
 
     // MARK: - Accessibility path
 
+    /// Native macOS roles that reliably honour kAXSelectedTextAttribute.
+    private static let trustedAXRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXComboBox", "AXSearchField"
+    ]
+
     private func tryAccessibilityInsert(_ text: String) -> Bool {
         let systemWide = AXUIElementCreateSystemWide()
 
         var rawFocused: CFTypeRef?
-        let fetchResult = AXUIElementCopyAttributeValue(
-            systemWide,
-            kAXFocusedUIElementAttribute as CFString,
-            &rawFocused
-        )
-        guard fetchResult == .success, let rawFocused else { return false }
+        guard AXUIElementCopyAttributeValue(
+            systemWide, kAXFocusedUIElementAttribute as CFString, &rawFocused
+        ) == .success, let rawFocused else { return false }
 
-        // swiftlint:disable:next force_cast
         let focused = rawFocused as! AXUIElement
 
-        // kAXSelectedTextAttribute: inserts at caret, or replaces the active selection.
-        // This is preferable to kAXValueAttribute (which would overwrite the whole field).
-        let setResult = AXUIElementSetAttributeValue(
-            focused,
-            kAXSelectedTextAttribute as CFString,
-            text as CFTypeRef
-        )
-
-        if setResult == .success { return true }
-
-        // Some apps (e.g. certain Electron apps) don't support kAXSelectedTextAttribute
-        // but do support kAXValueAttribute — only use it if the field is empty to avoid
-        // overwriting existing content.
-        if setResult == .failure || setResult == .attributeUnsupported {
-            var currentValue: CFTypeRef?
-            let getResult = AXUIElementCopyAttributeValue(
-                focused, kAXValueAttribute as CFString, &currentValue
-            )
-            let existingText = (currentValue as? String) ?? ""
-            if getResult == .success && existingText.isEmpty {
-                let replaceResult = AXUIElementSetAttributeValue(
-                    focused, kAXValueAttribute as CFString, text as CFTypeRef
-                )
-                if replaceResult == .success { return true }
-            }
+        // Check role
+        var rawRole: CFTypeRef?
+        AXUIElementCopyAttributeValue(focused, kAXRoleAttribute as CFString, &rawRole)
+        let role = (rawRole as? String) ?? ""
+        guard Self.trustedAXRoles.contains(role) else {
+            NSLog("[TextInserter] AX role '%@' not trusted, skipping", role)
+            return false
         }
 
-        return false
+        // Confirm the attribute is actually settable on this element.
+        // Terminal and some custom text views report a trusted role but mark
+        // kAXSelectedTextAttribute as read-only.
+        var settable: DarwinBoolean = false
+        AXUIElementIsAttributeSettable(focused, kAXSelectedTextAttribute as CFString, &settable)
+        guard settable.boolValue else {
+            NSLog("[TextInserter] kAXSelectedTextAttribute not settable on '%@', skipping", role)
+            return false
+        }
+
+        // Snapshot the selection before writing so we can verify it changed.
+        var beforeRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(focused, kAXSelectedTextAttribute as CFString, &beforeRef)
+        let before = (beforeRef as? String) ?? ""
+
+        let setResult = AXUIElementSetAttributeValue(
+            focused, kAXSelectedTextAttribute as CFString, text as CFTypeRef
+        )
+        guard setResult == .success else {
+            NSLog("[TextInserter] AX set failed on '%@': %d", role, setResult.rawValue)
+            return false
+        }
+
+        // Read back: after a real insertion the selection collapses to "" (cursor
+        // placed after the inserted text). If it still equals `before`, the write
+        // was silently ignored.
+        var afterRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(focused, kAXSelectedTextAttribute as CFString, &afterRef)
+        let after = (afterRef as? String) ?? ""
+
+        let verified = after != before
+        NSLog("[TextInserter] AX insert on '%@' — verified: %@", role, verified ? "yes" : "no (falling back)")
+        return verified
     }
 
     // MARK: - Clipboard fallback
@@ -78,35 +100,38 @@ final class TextInserter {
         pb.clearContents()
         pb.setString(text, forType: .string)
 
-        // Small delay so the clipboard write is visible to the target process
-        // before the keystroke arrives (matters for Chrome and some Electron apps).
-        try? await Task.sleep(for: .milliseconds(50))
-
-        simulateCmdV()
+        // Route Cmd-V through System Events (osascript). This is the only approach
+        // that reliably reaches Chrome, Terminal, and Electron apps — CGEvent
+        // synthetic keystrokes are filtered by those apps regardless of source.
+        await pasteViaSystemEvents()
 
         // Wait for the target app to process the paste before restoring.
-        try? await Task.sleep(for: .milliseconds(400))
+        try? await Task.sleep(for: .milliseconds(300))
 
         snapshot.restore(to: pb)
     }
 
-    private func simulateCmdV() {
-        let vKey: CGKeyCode = 9 // kVK_ANSI_V
-
-        // .combinedSessionState makes the event look like it came from a real
-        // user session rather than a synthetic HID source — required for Chrome
-        // and other apps that filter untrusted synthetic input.
-        let src = CGEventSource(stateID: .combinedSessionState)
-
-        let down = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: true)
-        down?.flags = .maskCommand
-        let up = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: false)
-        up?.flags = .maskCommand
-
-        // Post at annotated session level — correctly targets the frontmost app
-        // and its focused window, including browser windows and Terminal.
-        down?.post(tap: .cgAnnotatedSessionEventTap)
-        up?.post(tap: .cgAnnotatedSessionEventTap)
+    /// Simulates Cmd-V via NSAppleScript (in-process, inherits our Accessibility permission).
+    /// Runs on a background thread so it doesn't block the main actor.
+    private func pasteViaSystemEvents() async {
+        await Task.detached(priority: .userInitiated) {
+            let source = """
+tell application "System Events"
+    keystroke "v" using {command down}
+end tell
+"""
+            var errorDict: NSDictionary?
+            guard let script = NSAppleScript(source: source) else {
+                NSLog("[TextInserter] Failed to create NSAppleScript")
+                return
+            }
+            script.executeAndReturnError(&errorDict)
+            if let err = errorDict {
+                NSLog("[TextInserter] AppleScript error: %@", err)
+            } else {
+                NSLog("[TextInserter] AppleScript paste sent")
+            }
+        }.value
     }
 }
 

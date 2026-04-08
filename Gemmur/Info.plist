@@ -28,6 +28,8 @@
 	<true/>
 	<key>NSAccessibilityUsageDescription</key>
 	<string>Gemmur needs Accessibility access to insert transcribed text into other apps.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>Gemmur uses System Events to paste transcribed text into apps like Chrome and Terminal.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Gemmur needs the microphone to capture your speech for transcription.</string>
 </dict>

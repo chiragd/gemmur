@@ -26,9 +26,6 @@ final class ListeningHUD {
         if panel == nil { makePanel() }
         guard let panel, let hostingView else { return }
         hostingView.rootView = HUDView(mode: mode)
-        // Resize panel to fit new content
-        let size = hostingView.fittingSize
-        panel.setContentSize(size)
         positionNearCursor(panel)
         panel.orderFront(nil)
     }
@@ -42,10 +39,8 @@ final class ListeningHUD {
     private func makePanel() {
         let view = HUDView(mode: .listening)
         let hosting = NSHostingView(rootView: view)
-        hosting.sizingOptions = .preferredContentSize
-        let size = hosting.fittingSize
         let p = NSPanel(
-            contentRect: NSRect(origin: .zero, size: size),
+            contentRect: NSRect(x: 0, y: 0, width: 350, height: 44),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
