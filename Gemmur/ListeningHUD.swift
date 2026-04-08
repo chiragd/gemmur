@@ -1,23 +1,31 @@
 import AppKit
 import SwiftUI
 
-/// A small, non-activating floating panel that appears near the cursor while recording.
-/// It does not steal focus from whatever app the user is typing in.
+enum HUDMode {
+    case listening
+    case processing
+}
+
+/// A small, non-activating floating panel near the cursor.
+/// Shows "Listening…" while recording and "Processing…" while waiting for transcription.
 @MainActor
 final class ListeningHUD {
 
     static let shared = ListeningHUD()
 
     private var panel: NSPanel?
+    private var hostingView: NSHostingView<HUDView>?
+    private(set) var mode: HUDMode = .listening
 
     private init() {}
 
     // MARK: - Show / Hide
 
-    func show() {
-        if panel == nil { panel = makePanel() }
+    func show(mode: HUDMode = .listening) {
+        self.mode = mode
+        if panel == nil { makePanel() }
+        hostingView?.rootView = HUDView(mode: mode)
         guard let panel else { return }
-
         positionNearCursor(panel)
         panel.orderFront(nil)
     }
@@ -28,9 +36,11 @@ final class ListeningHUD {
 
     // MARK: - Construction
 
-    private func makePanel() -> NSPanel {
+    private func makePanel() {
+        let view = HUDView(mode: .listening)
+        let hosting = NSHostingView(rootView: view)
         let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 160, height: 44),
+            contentRect: NSRect(x: 0, y: 0, width: 180, height: 44),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -41,16 +51,16 @@ final class ListeningHUD {
         p.isOpaque = false
         p.hasShadow = true
         p.isReleasedWhenClosed = false
-        p.contentView = NSHostingView(rootView: HUDView())
-        return p
+        p.contentView = hosting
+        hostingView = hosting
+        panel = p
     }
 
     private func positionNearCursor(_ panel: NSPanel) {
-        let cursor = NSEvent.mouseLocation         // flipped screen coords
+        let cursor = NSEvent.mouseLocation
         let size = panel.frame.size
-        let offset: CGFloat = 24                   // px below cursor
+        let offset: CGFloat = 24
 
-        // Keep panel within the screen that contains the cursor
         let screen = NSScreen.screens.first(where: { NSMouseInRect(cursor, $0.frame, false) })
             ?? NSScreen.main
         let screenFrame = screen?.visibleFrame ?? .zero
@@ -58,7 +68,6 @@ final class ListeningHUD {
         var x = cursor.x - size.width / 2
         var y = cursor.y - size.height - offset
 
-        // Clamp to visible screen
         x = max(screenFrame.minX, min(x, screenFrame.maxX - size.width))
         y = max(screenFrame.minY, min(y, screenFrame.maxY - size.height))
 
@@ -68,12 +77,13 @@ final class ListeningHUD {
 
 // MARK: - SwiftUI content
 
-private struct HUDView: View {
+struct HUDView: View {
+    let mode: HUDMode
     @ObservedObject private var capture = AudioCaptureEngine.shared
 
     var body: some View {
         HStack(spacing: 8) {
-            PulsingCircle()
+            PulsingDot(color: dotColor)
             Text(label)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(.primary)
@@ -83,19 +93,32 @@ private struct HUDView: View {
         .background(.regularMaterial, in: Capsule())
     }
 
+    private var dotColor: Color {
+        switch mode {
+        case .listening:  .red
+        case .processing: .blue
+        }
+    }
+
     private var label: String {
-        if capture.elapsedSeconds < 1 { return "Listening…" }
-        let remaining = max(0, 30 - Int(capture.elapsedSeconds))
-        return "Listening… \(remaining)s"
+        switch mode {
+        case .listening:
+            if capture.elapsedSeconds < 1 { return "Listening…" }
+            let remaining = max(0, 30 - Int(capture.elapsedSeconds))
+            return "Listening… \(remaining)s"
+        case .processing:
+            return "Processing…"
+        }
     }
 }
 
-private struct PulsingCircle: View {
+private struct PulsingDot: View {
+    let color: Color
     @State private var scale = 1.0
 
     var body: some View {
         Circle()
-            .fill(Color.red)
+            .fill(color)
             .frame(width: 8, height: 8)
             .scaleEffect(scale)
             .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: scale)

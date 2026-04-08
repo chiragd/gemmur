@@ -44,6 +44,7 @@ enum BackendError: LocalizedError {
 
 enum DictationTone: String, CaseIterable, Identifiable {
     case verbatim     = "Verbatim"
+    case punctuated   = "Punctuated"
     case cleanedUp    = "Cleaned up"
     case formalEmail  = "Formal email"
     case casual       = "Casual"
@@ -53,11 +54,19 @@ enum DictationTone: String, CaseIterable, Identifiable {
     var systemPrompt: String {
         switch self {
         case .verbatim:
-            "You are a dictation engine. Transcribe the user's speech exactly as spoken. " +
-            "Add natural punctuation. Output only the transcript — no commentary, no quotation marks."
+            "You are a dictation engine. Transcribe the user's speech exactly as spoken, " +
+            "including filler words. Add minimal punctuation only where obviously needed. " +
+            "Output only the transcript — no commentary, no quotation marks."
+        case .punctuated:
+            "You are a dictation engine. Transcribe the user's speech word for word without " +
+            "changing, rephrasing, or removing any words. Add natural punctuation (commas, " +
+            "periods, question marks) and start new paragraphs where there is a clear topic " +
+            "shift or a long natural pause. Do not remove filler words or alter the wording " +
+            "in any way. Output only the transcript — no commentary, no quotation marks."
         case .cleanedUp:
             "You are a dictation engine. Transcribe the user's speech, removing filler words " +
-            "(um, uh, like, you know), false starts, and repetitions. Add natural punctuation. " +
+            "(um, uh, like, you know), false starts, and repetitions. Add natural punctuation " +
+            "and paragraph breaks where appropriate. " +
             "Output only the transcript — no commentary, no quotation marks."
         case .formalEmail:
             "You are a dictation engine. Transcribe the user's speech and rewrite it as polished, " +

@@ -85,7 +85,7 @@ final class AppSettings: ObservableObject {
     private init() {
         let ud = UserDefaults.standard
         model       = OllamaModel(rawValue: ud.string(forKey: "model") ?? "") ?? .e2b
-        tone        = DictationTone(rawValue: ud.string(forKey: "tone") ?? "") ?? .cleanedUp
+        tone        = DictationTone(rawValue: ud.string(forKey: "tone") ?? "") ?? .punctuated
         hotkey      = HotkeyOption(rawValue: ud.string(forKey: "hotkey") ?? "") ?? .fn
         launchAtLogin = ud.bool(forKey: "launchAtLogin")
     }

@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 guard ok else { return }
                 do {
                     try capture.startRecording()
-                    hud.show()
+                    hud.show(mode: .listening)
                     NSLog("[Gemmur] Recording started")
                 } catch {
                     NSLog("[Gemmur] Audio capture failed: %@", error.localizedDescription)
@@ -47,10 +47,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         hotkey.onKeyUp = {
             NSLog("[Gemmur] Fn key UP detected")
             var samples = capture.stopRecording()
-            hud.hide()
+            hud.show(mode: .processing)   // switch to processing state immediately
             Task {
                 await self.handleTranscription(samples: samples)
-                samples = []  // release backing buffer as soon as transcription is done
+                samples = []
             }
         }
 
@@ -76,10 +76,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 audio: consume samples,   // transfer ownership; buffer freed before Ollama call returns
                 systemPrompt: settings.tone.systemPrompt
             )
-            print("[Gemmur] Transcript: \(transcript)")
+            NSLog("[Gemmur] Transcript: %@", transcript)
+            ListeningHUD.shared.hide()
             await TextInserter.shared.insert(transcript)
         } catch {
-            print("[Gemmur] Transcription error: \(error.localizedDescription)")
+            ListeningHUD.shared.hide()
+            NSLog("[Gemmur] Transcription error: %@", error.localizedDescription)
             showErrorBanner(error.localizedDescription)
         }
     }
