@@ -73,33 +73,40 @@ final class TextInserter {
 
     private func clipboardFallback(_ text: String) async {
         let pb = NSPasteboard.general
-
-        // Snapshot the current clipboard so we can restore it.
         let snapshot = ClipboardSnapshot(pb)
 
         pb.clearContents()
         pb.setString(text, forType: .string)
 
+        // Small delay so the clipboard write is visible to the target process
+        // before the keystroke arrives (matters for Chrome and some Electron apps).
+        try? await Task.sleep(for: .milliseconds(50))
+
         simulateCmdV()
 
-        // Give the target app time to process the paste before we restore.
-        // 300 ms is enough for virtually all native and Electron apps.
-        try? await Task.sleep(for: .milliseconds(300))
+        // Wait for the target app to process the paste before restoring.
+        try? await Task.sleep(for: .milliseconds(400))
 
         snapshot.restore(to: pb)
     }
 
     private func simulateCmdV() {
-        let src = CGEventSource(stateID: .hidSystemState)
         let vKey: CGKeyCode = 9 // kVK_ANSI_V
+
+        // .combinedSessionState makes the event look like it came from a real
+        // user session rather than a synthetic HID source — required for Chrome
+        // and other apps that filter untrusted synthetic input.
+        let src = CGEventSource(stateID: .combinedSessionState)
 
         let down = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: true)
         down?.flags = .maskCommand
         let up = CGEvent(keyboardEventSource: src, virtualKey: vKey, keyDown: false)
         up?.flags = .maskCommand
 
-        down?.post(tap: .cghidEventTap)
-        up?.post(tap: .cghidEventTap)
+        // Post at annotated session level — correctly targets the frontmost app
+        // and its focused window, including browser windows and Terminal.
+        down?.post(tap: .cgAnnotatedSessionEventTap)
+        up?.post(tap: .cgAnnotatedSessionEventTap)
     }
 }
 
