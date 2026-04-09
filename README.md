@@ -2,50 +2,19 @@
 
 A 100% local, privacy-first dictation app for macOS. Hold a key, speak, release — your words appear in whatever app is focused. No cloud. No subscription. All processing happens on your machine.
 
-**Powered by [Gemma 4 E-series](https://ai.google.dev/gemma) via [Ollama](https://ollama.com).** Gemma 4 E4B is a multimodal model that handles transcription and disfluency cleanup in a single inference pass — no separate Whisper + LLM pipeline.
+**Powered by [WhisperKit](https://github.com/argmaxinc/WhisperKit) + [Gemma 3](https://ai.google.dev/gemma/docs/gemma3) (4-bit quantized via [MLX](https://github.com/ml-explore/mlx-swift)).** Speech is transcribed on-device by WhisperKit, then optionally rewritten by a local Gemma 3 model — no cloud, no external server, no Ollama required.
 
 ---
 
 ## Requirements
 
 - macOS 14 (Sonoma) or later, Apple Silicon
-- [Ollama](https://ollama.com) ≥ 0.6 (with Gemma 4 audio support)
-- Gemma 4 E4B or E2B model pulled locally
+- Xcode 16+
+- No external dependencies — models are downloaded automatically on first use
 
 ## Setup
 
-### 1. Install Ollama
-
-Download from [ollama.com](https://ollama.com) or via Homebrew:
-
-```bash
-brew install ollama
-```
-
-Start the Ollama server (or launch the Ollama menu bar app):
-
-```bash
-ollama serve
-```
-
-### 2. Pull the Gemma 4 model
-
-```bash
-# Default — good balance of speed and quality
-ollama pull gemma4:e2b
-
-# Higher quality, requires more memory/compute
-ollama pull gemma4:e4b
-```
-
-Verify audio input is working:
-
-```bash
-ollama run gemma4:e4b "Hello"
-# Should respond without errors
-```
-
-### 3. Build and run Gemmur
+### 1. Build and run Gemmur
 
 Open `Gemmur.xcodeproj` in Xcode 16+ and press **Run**, or build from the terminal:
 
@@ -55,7 +24,9 @@ xcodebuild -scheme Gemmur -configuration Debug build
 open DerivedData/Gemmur/Build/Products/Debug/Gemmur.app
 ```
 
-### 4. Grant permissions
+Models are downloaded from Hugging Face on first use (WhisperKit ~140 MB, Gemma 3 1B ~600 MB by default). Progress is shown in the Settings window.
+
+### 2. Grant permissions
 
 On first launch, open **Settings** from the menu bar icon and grant:
 
@@ -83,10 +54,10 @@ Click the `waveform.circle` icon in the menu bar → **Settings…**
 |---|---|
 | Push-to-talk key | Fn / Globe, Right Option ⌥, Right Control ⌃ |
 | Tone | Verbatim, Cleaned up, Formal email, Casual |
-| Model | Gemma 4 E4B (recommended), Gemma 4 E2B |
+| Voice model | tiny.en (~40 MB), base.en (~140 MB), small.en (~460 MB) |
+| AI model | Gemma 3 270M 4-bit (~170 MB), 1B 4-bit (~600 MB), 4B 4-bit (~2.5 GB) |
+| Inference backend | Voice only, Voice + AI, AI for all tones |
 | Launch at login | Toggle |
-
-Use **Check connection** in Settings to verify Ollama is running and the selected model is available.
 
 ---
 
@@ -94,7 +65,7 @@ Use **Check connection** in Settings to verify Ollama is running and the selecte
 
 - Zero network calls to any external server. All audio stays on your machine.
 - Audio is never written to disk — it lives in memory for the duration of the recording.
-- Transcription runs entirely inside the local Ollama process.
+- Transcription runs entirely on-device via WhisperKit and MLX.
 
 ---
 
@@ -103,14 +74,11 @@ Use **Check connection** in Settings to verify Ollama is running and the selecte
 **The waveform icon doesn't appear in the menu bar**
 → Make sure `LSUIElement` is set to `true` in `Info.plist` (it is by default). Restart the app.
 
-**"Could not reach Ollama at localhost:11434"**
-→ Run `ollama serve` or start the Ollama desktop app.
+**AI model is slow on first use**
+→ The model is being downloaded from Hugging Face. Check Settings for progress. Once downloaded it's cached locally and loads in a few seconds.
 
-**"Model 'gemma4:e4b' not found"**
-→ Run `ollama pull gemma4:e4b` and wait for the download to complete.
-
-**"Backend does not support audio input"**
-→ Update Ollama to the latest version (`brew upgrade ollama`). Audio support for Gemma 4 E-series requires Ollama ≥ 0.6.
+**Transcription runs but AI rewrite does nothing**
+→ Open Settings and check the AI model state indicator. If it shows "Failed", try switching to a smaller model (270M) which requires less memory.
 
 **Accessibility permission keeps asking**
 → Remove Gemmur from System Settings → Privacy & Security → Accessibility and re-add it after granting.
