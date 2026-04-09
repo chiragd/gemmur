@@ -32,6 +32,10 @@ final class WhisperBackend: TranscriptionBackend {
         NSLog("[WhisperBackend] Loading model '%@'…", model)
         do {
             pipe = try await WhisperKit(model: model)
+            // Run a silent dummy transcription to force Metal shader compilation now,
+            // so the first real dictation isn't delayed by 30–60s of JIT warm-up.
+            let silence = [Float](repeating: 0, count: 16_000)  // 1s of silence
+            _ = try? await pipe!.transcribe(audioArray: silence)
             NSLog("[WhisperBackend] Model '%@' ready", model)
             AppSettings.shared.whisperModelState = .ready
         } catch {

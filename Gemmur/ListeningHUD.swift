@@ -90,6 +90,7 @@ struct HUDView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        .frame(minWidth: 525)
         .background(.regularMaterial, in: Capsule())
     }
 
