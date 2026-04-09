@@ -18,8 +18,11 @@ final class WhisperBackend: TranscriptionBackend {
 
     /// Set by AppDelegate before each transcription. Called on the main actor with
     /// accumulated text as it becomes available (raw Whisper output first, then
-    /// each Ollama token if a rewrite is running).
+    /// each MLX token if a rewrite is running).
     var onPartialTranscript: (@Sendable (String) -> Void)?
+
+    /// Injected by AppDelegate so WhisperBackend can delegate rewrite passes to MLX.
+    var mlxBackend: MLXRewriteBackend?
 
     // MARK: - Warm-up
 
@@ -63,15 +66,19 @@ final class WhisperBackend: TranscriptionBackend {
         // while Ollama rewrites (or as the final result for simple tones).
         onPartialTranscript?(rawTranscript)
 
-        if tone.needsLLMRewrite && AppSettings.shared.inferenceBackend.usesOllama {
-            NSLog("[WhisperBackend] Rewriting via Ollama (tone: %@)…", tone.rawValue)
-            let rewriteModel = AppSettings.shared.model.rawValue
+        let backend = AppSettings.shared.inferenceBackend
+        let shouldRewrite = backend.mlxRunsForAllTones
+                         || (tone.needsLLMRewrite && backend.usesMLX)
+
+        if shouldRewrite {
+            guard let mlxBackend, mlxBackend.isReady else {
+                throw BackendError.backendUnreachable(
+                    "AI model not loaded yet — try again in a moment."
+                )
+            }
+            NSLog("[WhisperBackend] Rewriting via MLX (tone: %@)…", tone.rawValue)
             let onPartial = onPartialTranscript
-            return try await OllamaBackend(model: rewriteModel).rewrite(
-                text: rawTranscript,
-                tone: tone,
-                onPartial: onPartial
-            )
+            return try await mlxBackend.rewrite(text: rawTranscript, tone: tone, onPartial: onPartial)
         }
 
         return rawTranscript

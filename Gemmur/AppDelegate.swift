@@ -8,14 +8,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
     private var whisperBackend: WhisperBackend?
+    private var mlxBackend: MLXRewriteBackend?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         _ = PermissionsManager.shared  // force init so the poll starts immediately
+        // Request permissions at launch so the app appears in Privacy & Security lists
+        // immediately, even before the user presses the hotkey for the first time.
+        Task { await PermissionsManager.shared.checkAll() }
         setupStatusItem()
         setupHotkey()
         startWhisperWarmUp()
         AppSettings.shared.onWhisperModelChange = { [weak self] in self?.startWhisperWarmUp() }
+        startMLXWarmUp()
+        AppSettings.shared.onAIModelChange = { [weak self] in self?.startMLXWarmUp() }
+        AppSettings.shared.onBackendChange = { [weak self] in self?.startMLXWarmUp() }
     }
 
     // MARK: - Backend management
@@ -23,12 +30,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func startWhisperWarmUp() {
         if whisperBackend == nil { whisperBackend = WhisperBackend() }
         guard let wb = whisperBackend else { return }
+        wb.mlxBackend = mlxBackend
         let modelName = AppSettings.shared.whisperModel.rawValue
         Task {
             do {
                 try await wb.warmUp(model: modelName)
             } catch {
                 NSLog("[Gemmur] WhisperKit warm-up failed: %@", error.localizedDescription)
+            }
+        }
+    }
+
+    private func startMLXWarmUp() {
+        guard AppSettings.shared.inferenceBackend.usesMLX else { return }
+        if mlxBackend == nil { mlxBackend = MLXRewriteBackend() }
+        guard let mlx = mlxBackend else { return }
+        whisperBackend?.mlxBackend = mlx
+        let modelId = AppSettings.shared.aiModel.rawValue
+        Task {
+            do {
+                try await mlx.warmUp(modelId: modelId)
+            } catch {
+                NSLog("[Gemmur] MLX warm-up failed: %@", error.localizedDescription)
             }
         }
     }
@@ -88,23 +111,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSLog("[Gemmur] Captured %d samples (%.1fs) — transcribing…",
               samples.count, Double(samples.count) / 16_000)
 
-        // Pick backend: use WhisperKit if selected and ready, otherwise fall back to Ollama.
-        let backend: any TranscriptionBackend
-        if settings.inferenceBackend.usesWhisper, let wb = whisperBackend, wb.isReady {
-            NSLog("[Gemmur] Using WhisperKit backend")
-            wb.onPartialTranscript = { partial in
-                Task { @MainActor in
-                    ListeningHUD.shared.hide()
-                    TranscriptPopup.shared.update(transcript: partial)
-                }
-            }
-            backend = wb
-        } else {
-            if settings.inferenceBackend.usesWhisper {
-                NSLog("[Gemmur] WhisperKit not ready yet — falling back to Ollama")
-            }
-            backend = OllamaBackend(model: settings.model.rawValue)
+        // All modes use WhisperKit for transcription.
+        guard let wb = whisperBackend, wb.isReady else {
+            NSLog("[Gemmur] WhisperKit not ready yet — please wait for the model to load")
+            showErrorBanner("Voice model not ready yet — please wait a moment and try again.")
+            ListeningHUD.shared.hide()
+            return
         }
+        NSLog("[Gemmur] Using WhisperKit backend")
+        wb.onPartialTranscript = { partial in
+            Task { @MainActor in
+                ListeningHUD.shared.hide()
+                TranscriptPopup.shared.update(transcript: partial)
+            }
+        }
+        let backend: any TranscriptionBackend = wb
 
         do {
             let transcript = try await backend.transcribe(

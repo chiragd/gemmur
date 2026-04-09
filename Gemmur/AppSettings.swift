@@ -4,21 +4,25 @@ import ServiceManagement
 // MARK: - Inference backend picker
 
 enum InferenceBackend: String, CaseIterable, Identifiable {
-    case voiceOnly  = "voiceOnly"   // WhisperKit only, no Ollama
-    case aiOnly     = "aiOnly"      // Ollama only, no WhisperKit
-    case voiceAndAI = "voiceAndAI"  // WhisperKit → Ollama rewrite for complex tones
+    case voiceOnly  = "voiceOnly"   // WhisperKit only, no AI rewrite
+    case voiceAndAI = "voiceAndAI"  // WhisperKit → MLX rewrite for complex tones
+    case aiOnly     = "aiOnly"      // WhisperKit + MLX rewrite for every tone
 
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .voiceOnly:  "Local voice model only"
-        case .aiOnly:     "Local AI model only"
         case .voiceAndAI: "Local voice + AI model"
+        case .aiOnly:     "Local AI model only"
         }
     }
 
-    var usesWhisper: Bool { self != .aiOnly }
-    var usesOllama: Bool  { self != .voiceOnly }
+    /// All modes use WhisperKit for audio transcription.
+    var usesWhisper: Bool { true }
+    /// Modes that run MLX for text rewriting.
+    var usesMLX: Bool { self == .voiceAndAI || self == .aiOnly }
+    /// In aiOnly mode the AI rewrite runs for every tone, not just complex ones.
+    var mlxRunsForAllTones: Bool { self == .aiOnly }
 }
 
 // MARK: - WhisperKit model state
@@ -52,21 +56,33 @@ enum WhisperModel: String, CaseIterable, Identifiable {
     }
 }
 
-// MARK: - Model picker
+// MARK: - AI rewrite model picker
 
-enum OllamaModel: String, CaseIterable, Identifiable {
-    case gemma3_270m = "gemma3:270m"
-    case gemma3_1b   = "gemma3:1b"
-    case e2b         = "gemma4:e2b"
-    case e4b         = "gemma4:e4b"
+enum AIModel: String, CaseIterable, Identifiable {
+    case gemma3_270m = "mlx-community/gemma-3-270m-it-4bit"
+    case gemma3_1b   = "mlx-community/gemma-3-1b-it-4bit"
+    case gemma3_4b   = "mlx-community/gemma-3-4b-it-4bit"
 
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .gemma3_270m: "Gemma 3 270M (fastest)"
-        case .gemma3_1b:   "Gemma 3 1B (fast rewrite)"
-        case .e2b:         "Gemma 4 E2B"
-        case .e4b:         "Gemma 4 E4B (higher quality, slower)"
+        case .gemma3_270m: "Gemma 3 270M 4-bit (~170 MB, fastest)"
+        case .gemma3_1b:   "Gemma 3 1B 4-bit (~600 MB, default)"
+        case .gemma3_4b:   "Gemma 3 4B 4-bit (~2.5 GB, higher quality)"
+        }
+    }
+}
+
+// MARK: - AI model load state
+
+enum AIModelState: Equatable {
+    case notLoaded, loading, ready, failed(String)
+
+    static func == (lhs: AIModelState, rhs: AIModelState) -> Bool {
+        switch (lhs, rhs) {
+        case (.notLoaded, .notLoaded), (.loading, .loading), (.ready, .ready): true
+        case (.failed(let a), .failed(let b)): a == b
+        default: false
         }
     }
 }
@@ -118,9 +134,15 @@ final class AppSettings: ObservableObject {
 
     // MARK: Persisted values
 
-    @Published var model: OllamaModel {
-        didSet { UserDefaults.standard.set(model.rawValue, forKey: "model") }
+    @Published var aiModel: AIModel {
+        didSet {
+            UserDefaults.standard.set(aiModel.rawValue, forKey: "aiModel")
+            onAIModelChange?()
+        }
     }
+    /// Called by AppDelegate to restart MLX warm-up when the AI model changes.
+    var onAIModelChange: (() -> Void)?
+
     @Published var tone: DictationTone {
         didSet { UserDefaults.standard.set(tone.rawValue, forKey: "tone") }
     }
@@ -131,8 +153,13 @@ final class AppSettings: ObservableObject {
         }
     }
     @Published var inferenceBackend: InferenceBackend {
-        didSet { UserDefaults.standard.set(inferenceBackend.rawValue, forKey: "inferenceBackend") }
+        didSet {
+            UserDefaults.standard.set(inferenceBackend.rawValue, forKey: "inferenceBackend")
+            onBackendChange?()
+        }
     }
+    /// Called by AppDelegate when the inference backend changes (e.g. switching to a mode that uses MLX).
+    var onBackendChange: (() -> Void)?
     @Published var whisperModel: WhisperModel {
         didSet {
             UserDefaults.standard.set(whisperModel.rawValue, forKey: "whisperModel")
@@ -150,10 +177,12 @@ final class AppSettings: ObservableObject {
 
     /// Reflects whether the bundled WhisperKit model is loaded. Updated by AppDelegate.
     @Published var whisperModelState: WhisperModelState = .notLoaded
+    /// Reflects whether the MLX AI model is loaded. Updated by AppDelegate.
+    @Published var aiModelState: AIModelState = .notLoaded
 
     private init() {
         let ud = UserDefaults.standard
-        model            = OllamaModel(rawValue: ud.string(forKey: "model") ?? "") ?? .e2b
+        aiModel          = AIModel(rawValue: ud.string(forKey: "aiModel") ?? "") ?? .gemma3_1b
         tone             = DictationTone(rawValue: ud.string(forKey: "tone") ?? "") ?? .punctuated
         hotkey           = HotkeyOption(rawValue: ud.string(forKey: "hotkey") ?? "") ?? .fn
         inferenceBackend = InferenceBackend(rawValue: ud.string(forKey: "inferenceBackend") ?? "") ?? .voiceAndAI

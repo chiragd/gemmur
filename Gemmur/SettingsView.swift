@@ -155,9 +155,6 @@ private struct DictationSection: View {
 
 private struct BackendSection: View {
     @ObservedObject var settings: AppSettings
-    @State private var checkStatus: BackendCheckStatus = .idle
-
-    enum BackendCheckStatus { case idle, checking, ok, error(String) }
 
     var body: some View {
         SectionHeader("Inference backend")
@@ -172,63 +169,37 @@ private struct BackendSection: View {
             .frame(width: 240)
         }
 
-        if settings.inferenceBackend.usesWhisper {
-            SettingsRow(label: "Voice model") {
-                HStack(spacing: 6) {
-                    Picker("", selection: $settings.whisperModel) {
-                        ForEach(WhisperModel.allCases) { m in
-                            Text(m.displayName).tag(m)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 240)
-                    whisperStateView
-                }
-            }
-        }
-
-        let ollamaNeeded = settings.inferenceBackend.usesOllama
-
-        if ollamaNeeded {
-            SettingsRow(label: settings.inferenceBackend == .aiOnly ? "AI model" : "AI rewrite model") {
-                Picker("", selection: $settings.model) {
-                    ForEach(OllamaModel.allCases) { model in
-                        Text(model.displayName).tag(model)
+        SettingsRow(label: "Voice model") {
+            HStack(spacing: 6) {
+                Picker("", selection: $settings.whisperModel) {
+                    ForEach(WhisperModel.allCases) { m in
+                        Text(m.displayName).tag(m)
                     }
                 }
                 .labelsHidden()
                 .frame(width: 240)
+                whisperStateView
             }
         }
 
-        HStack {
-            Button("Check Ollama") {
-                Task { await checkOllama() }
+        if settings.inferenceBackend.usesMLX {
+            SettingsRow(label: settings.inferenceBackend == .aiOnly ? "AI model" : "AI rewrite model") {
+                HStack(spacing: 6) {
+                    Picker("", selection: $settings.aiModel) {
+                        ForEach(AIModel.allCases) { model in
+                            Text(model.displayName).tag(model)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 240)
+                    aiModelStateView
+                }
             }
-            .controlSize(.small)
-            .disabled(!ollamaNeeded)
 
-            switch checkStatus {
-            case .idle:
-                EmptyView()
-            case .checking:
-                ProgressView().controlSize(.small)
-            case .ok:
-                Label("Connected", systemImage: "checkmark.circle.fill")
-                    .foregroundStyle(.green).font(.callout)
-            case .error(let msg):
-                Label(msg, systemImage: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.red).font(.callout)
-                    .lineLimit(2).fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer()
-        }
-
-        if ollamaNeeded {
             let hint = settings.inferenceBackend == .voiceAndAI
                 ? "AI rewrite model used for Cleaned up, Formal, and Casual tones."
-                : "AI model handles all transcription."
-            Text("\(hint) Run \(Image(systemName: "terminal")) ollama pull \(settings.model.rawValue).")
+                : "AI model runs after voice transcription for every tone."
+            Text(hint)
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
@@ -253,13 +224,22 @@ private struct BackendSection: View {
         }
     }
 
-    private func checkOllama() async {
-        checkStatus = .checking
-        do {
-            try await OllamaBackend(model: settings.model.rawValue).checkAvailability()
-            checkStatus = .ok
-        } catch {
-            checkStatus = .error(error.localizedDescription)
+    @ViewBuilder
+    private var aiModelStateView: some View {
+        switch settings.aiModelState {
+        case .notLoaded:
+            EmptyView()
+        case .loading:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.mini)
+                Text("Downloading…").font(.caption).foregroundStyle(.secondary)
+            }
+        case .ready:
+            Label("Ready", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green).font(.caption)
+        case .failed(let err):
+            Label(err, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red).font(.caption).lineLimit(1)
         }
     }
 }
