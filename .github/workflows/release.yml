@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.app
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build Release
+        run: |
+          xcodebuild \
+            -scheme Gemmur \
+            -configuration Release \
+            -derivedDataPath DerivedData \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=NO \
+            ENABLE_HARDENED_RUNTIME=NO \
+            build
+
+      - name: Package DMG
+        run: |
+          mkdir -p dmg_staging
+          cp -r DerivedData/Build/Products/Release/Gemmur.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create \
+            -volname "Gemmur" \
+            -srcfolder dmg_staging \
+            -ov \
+            -format UDZO \
+            "Gemmur-${{ github.ref_name }}.dmg"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Gemmur-${{ github.ref_name }}.dmg
+          body: |
+            ## Install
+
+            1. Download `Gemmur-${{ github.ref_name }}.dmg`
+            2. Open the DMG and drag **Gemmur** to Applications
+            3. On first launch macOS may block the app — open **System Settings → Privacy & Security** and click **Open Anyway**, or run:
+               ```
+               xattr -dr com.apple.quarantine /Applications/Gemmur.app
+               ```
+            4. Launch Gemmur and grant **Microphone** + **Accessibility** permissions from the Settings menu
+
+            ## Requirements
+
+            - macOS 14 (Sonoma) or later
+            - Apple Silicon (M1 or later)
