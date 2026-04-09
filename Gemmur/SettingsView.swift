@@ -172,8 +172,8 @@ private struct BackendSection: View {
             .frame(width: 240)
         }
 
-        if settings.inferenceBackend == .whisper {
-            SettingsRow(label: "Whisper model") {
+        if settings.inferenceBackend.usesWhisper {
+            SettingsRow(label: "Voice model") {
                 HStack(spacing: 6) {
                     Picker("", selection: $settings.whisperModel) {
                         ForEach(WhisperModel.allCases) { m in
@@ -185,19 +185,12 @@ private struct BackendSection: View {
                     whisperStateView
                 }
             }
-
-            SettingsRow(label: "Whisper only") {
-                Toggle("", isOn: $settings.whisperOnly)
-                    .labelsHidden()
-                    .help("Skip the Ollama rewrite step for all tones. Faster, but Cleaned up / Formal / Casual tones return raw Whisper output.")
-            }
         }
 
-        let ollamaNeeded = settings.inferenceBackend == .ollama ||
-                           (settings.inferenceBackend == .whisper && !settings.whisperOnly)
+        let ollamaNeeded = settings.inferenceBackend.usesOllama
 
         if ollamaNeeded {
-            SettingsRow(label: settings.inferenceBackend == .whisper ? "Rewrite model" : "Model") {
+            SettingsRow(label: settings.inferenceBackend == .aiOnly ? "AI model" : "AI rewrite model") {
                 Picker("", selection: $settings.model) {
                     ForEach(OllamaModel.allCases) { model in
                         Text(model.displayName).tag(model)
@@ -232,9 +225,9 @@ private struct BackendSection: View {
         }
 
         if ollamaNeeded {
-            let hint = settings.inferenceBackend == .whisper
-                ? "Rewrite model handles Cleaned up, Formal, and Casual tones."
-                : "Ollama handles all transcription."
+            let hint = settings.inferenceBackend == .voiceAndAI
+                ? "AI rewrite model used for Cleaned up, Formal, and Casual tones."
+                : "AI model handles all transcription."
             Text("\(hint) Run \(Image(systemName: "terminal")) ollama pull \(settings.model.rawValue).")
                 .font(.caption)
                 .foregroundStyle(.secondary)

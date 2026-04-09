@@ -63,8 +63,7 @@ final class WhisperBackend: TranscriptionBackend {
         // while Ollama rewrites (or as the final result for simple tones).
         onPartialTranscript?(rawTranscript)
 
-        let whisperOnly = AppSettings.shared.whisperOnly
-        if tone.needsLLMRewrite && !whisperOnly {
+        if tone.needsLLMRewrite && AppSettings.shared.inferenceBackend.usesOllama {
             NSLog("[WhisperBackend] Rewriting via Ollama (tone: %@)…", tone.rawValue)
             let rewriteModel = AppSettings.shared.model.rawValue
             let onPartial = onPartialTranscript

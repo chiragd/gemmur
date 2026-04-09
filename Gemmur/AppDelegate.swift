@@ -90,9 +90,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         // Pick backend: use WhisperKit if selected and ready, otherwise fall back to Ollama.
         let backend: any TranscriptionBackend
-        if settings.inferenceBackend == .whisper, let wb = whisperBackend, wb.isReady {
+        if settings.inferenceBackend.usesWhisper, let wb = whisperBackend, wb.isReady {
             NSLog("[Gemmur] Using WhisperKit backend")
-            // Stream partial results into the popup as they arrive.
             wb.onPartialTranscript = { partial in
                 Task { @MainActor in
                     ListeningHUD.shared.hide()
@@ -101,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
             backend = wb
         } else {
-            if settings.inferenceBackend == .whisper {
+            if settings.inferenceBackend.usesWhisper {
                 NSLog("[Gemmur] WhisperKit not ready yet — falling back to Ollama")
             }
             backend = OllamaBackend(model: settings.model.rawValue)

@@ -4,16 +4,21 @@ import ServiceManagement
 // MARK: - Inference backend picker
 
 enum InferenceBackend: String, CaseIterable, Identifiable {
-    case whisper = "whisper"
-    case ollama  = "ollama"
+    case voiceOnly  = "voiceOnly"   // WhisperKit only, no Ollama
+    case aiOnly     = "aiOnly"      // Ollama only, no WhisperKit
+    case voiceAndAI = "voiceAndAI"  // WhisperKit → Ollama rewrite for complex tones
 
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .whisper: "Whisper + Gemma (recommended)"
-        case .ollama:  "Ollama only"
+        case .voiceOnly:  "Local voice model only"
+        case .aiOnly:     "Local AI model only"
+        case .voiceAndAI: "Local voice + AI model"
         }
     }
+
+    var usesWhisper: Bool { self != .aiOnly }
+    var usesOllama: Bool  { self != .voiceOnly }
 }
 
 // MARK: - WhisperKit model state
@@ -136,10 +141,6 @@ final class AppSettings: ObservableObject {
     }
     /// Called by AppDelegate to restart WhisperKit warm-up when the model changes.
     var onWhisperModelChange: (() -> Void)?
-    /// When true, Whisper output is used as-is for all tones (no Ollama rewrite step).
-    @Published var whisperOnly: Bool {
-        didSet { UserDefaults.standard.set(whisperOnly, forKey: "whisperOnly") }
-    }
     @Published var launchAtLogin: Bool {
         didSet {
             UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin")
@@ -155,9 +156,8 @@ final class AppSettings: ObservableObject {
         model            = OllamaModel(rawValue: ud.string(forKey: "model") ?? "") ?? .e2b
         tone             = DictationTone(rawValue: ud.string(forKey: "tone") ?? "") ?? .punctuated
         hotkey           = HotkeyOption(rawValue: ud.string(forKey: "hotkey") ?? "") ?? .fn
-        inferenceBackend = InferenceBackend(rawValue: ud.string(forKey: "inferenceBackend") ?? "") ?? .whisper
+        inferenceBackend = InferenceBackend(rawValue: ud.string(forKey: "inferenceBackend") ?? "") ?? .voiceAndAI
         whisperModel     = WhisperModel(rawValue: ud.string(forKey: "whisperModel") ?? "") ?? .baseEn
-        whisperOnly      = ud.bool(forKey: "whisperOnly")
         launchAtLogin    = ud.bool(forKey: "launchAtLogin")
     }
 
