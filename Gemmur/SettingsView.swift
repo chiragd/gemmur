@@ -163,25 +163,57 @@ private struct BackendSection: View {
         SectionHeader("Inference backend")
 
         SettingsRow(label: "Backend") {
-            Text("Ollama (localhost:11434)")
-                .foregroundStyle(.secondary)
-        }
-
-        SettingsRow(label: "Model") {
-            Picker("", selection: $settings.model) {
-                ForEach(OllamaModel.allCases) { model in
-                    Text(model.displayName).tag(model)
+            Picker("", selection: $settings.inferenceBackend) {
+                ForEach(InferenceBackend.allCases) { backend in
+                    Text(backend.displayName).tag(backend)
                 }
             }
             .labelsHidden()
             .frame(width: 240)
         }
 
+        if settings.inferenceBackend == .whisper {
+            SettingsRow(label: "Whisper model") {
+                HStack(spacing: 6) {
+                    Picker("", selection: $settings.whisperModel) {
+                        ForEach(WhisperModel.allCases) { m in
+                            Text(m.displayName).tag(m)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 240)
+                    whisperStateView
+                }
+            }
+
+            SettingsRow(label: "Whisper only") {
+                Toggle("", isOn: $settings.whisperOnly)
+                    .labelsHidden()
+                    .help("Skip the Ollama rewrite step for all tones. Faster, but Cleaned up / Formal / Casual tones return raw Whisper output.")
+            }
+        }
+
+        let ollamaNeeded = settings.inferenceBackend == .ollama ||
+                           (settings.inferenceBackend == .whisper && !settings.whisperOnly)
+
+        if ollamaNeeded {
+            SettingsRow(label: settings.inferenceBackend == .whisper ? "Rewrite model" : "Model") {
+                Picker("", selection: $settings.model) {
+                    ForEach(OllamaModel.allCases) { model in
+                        Text(model.displayName).tag(model)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 240)
+            }
+        }
+
         HStack {
-            Button("Check connection") {
-                Task { await checkBackend() }
+            Button("Check Ollama") {
+                Task { await checkOllama() }
             }
             .controlSize(.small)
+            .disabled(!ollamaNeeded)
 
             switch checkStatus {
             case .idle:
@@ -199,12 +231,36 @@ private struct BackendSection: View {
             Spacer()
         }
 
-        Text("Run \(Image(systemName: "terminal")) ollama pull \(settings.model.rawValue) to download the model.")
-            .font(.caption)
-            .foregroundStyle(.secondary)
+        if ollamaNeeded {
+            let hint = settings.inferenceBackend == .whisper
+                ? "Rewrite model handles Cleaned up, Formal, and Casual tones."
+                : "Ollama handles all transcription."
+            Text("\(hint) Run \(Image(systemName: "terminal")) ollama pull \(settings.model.rawValue).")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
     }
 
-    private func checkBackend() async {
+    @ViewBuilder
+    private var whisperStateView: some View {
+        switch settings.whisperModelState {
+        case .notLoaded:
+            EmptyView()
+        case .loading:
+            HStack(spacing: 4) {
+                ProgressView().controlSize(.mini)
+                Text("Downloading…").font(.caption).foregroundStyle(.secondary)
+            }
+        case .ready:
+            Label("Ready", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green).font(.caption)
+        case .failed(let err):
+            Label(err, systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red).font(.caption).lineLimit(1)
+        }
+    }
+
+    private func checkOllama() async {
         checkStatus = .checking
         do {
             try await OllamaBackend(model: settings.model.rawValue).checkAvailability()

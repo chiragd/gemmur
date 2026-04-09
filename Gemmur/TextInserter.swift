@@ -16,18 +16,20 @@ final class TextInserter {
 
     // MARK: - Public
 
-    func insert(_ text: String) async {
-        guard !text.isEmpty else { return }
+    @discardableResult
+    func insert(_ text: String) async -> Bool {
+        guard !text.isEmpty else { return false }
 
         // Only trust AX insertion for roles that are known to honour it correctly.
         // Chrome, Terminal, and web-based elements report success but silently discard
         // the value — so we verify the role before trusting the result.
         if tryAccessibilityInsert(text) {
             NSLog("[TextInserter] Inserted via AX")
-            return
+            return true
         }
         NSLog("[TextInserter] Falling back to clipboard paste")
         await clipboardFallback(text)
+        return true
     }
 
     // MARK: - Accessibility path

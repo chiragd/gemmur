@@ -12,13 +12,16 @@
 		40649E312F96EE324FAE6630 /* TextInserter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 92948AA079178686164FE0BE /* TextInserter.swift */; };
 		576A5637C886EB06EB3C3226 /* HotkeyManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 21F860DF8587D6E5B0F7EE28 /* HotkeyManager.swift */; };
 		66B25D80F1DBF868A98167B3 /* PermissionsManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = F372CCAFF71C1B5ADA05C993 /* PermissionsManager.swift */; };
+		6C1FC42A5794F9196166A923 /* WhisperKit in Frameworks */ = {isa = PBXBuildFile; productRef = 18242F963CD17437F68C261A /* WhisperKit */; };
 		77293740342EE4F78D7DBDA9 /* ListeningHUD.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1C4027BF0B6C19434544588 /* ListeningHUD.swift */; };
 		8318CFD00FCDA8A554DE1215 /* GemmurApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A8CEAF81E632AFC8F295505 /* GemmurApp.swift */; };
 		83CE8119FFF9592B27B7FB55 /* TranscriptionBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EB980FCB753DC88629D872F /* TranscriptionBackend.swift */; };
 		8A05FAE9EE27B6EEB8E9D09C /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 714D0A7DD8753674C6C8A206 /* Assets.xcassets */; };
 		9B292F4AE3465E116B19E77D /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4BBE71B4DCC7768B65A2A0B /* AppDelegate.swift */; };
+		9BBAA49DD8A3C4865966A08D /* TranscriptPopup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8EBF7DC9C8997CBA80C4C09 /* TranscriptPopup.swift */; };
 		E6D1D8473ED74791DCCAFD26 /* AudioCaptureEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 516F9E2192EB6986D856A042 /* AudioCaptureEngine.swift */; };
 		FC7CDA981CF722EE1426A5A4 /* OllamaBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF9427E8DC45ABFC1D834C1B /* OllamaBackend.swift */; };
+		FFE1669D5CA5B0432132C621 /* WhisperBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = A82AA52E66AF75412D382426 /* WhisperBackend.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -31,12 +34,25 @@
 		54741FFCCD095D8E4DF6A3C9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		714D0A7DD8753674C6C8A206 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		92948AA079178686164FE0BE /* TextInserter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TextInserter.swift; sourceTree = "<group>"; };
+		A82AA52E66AF75412D382426 /* WhisperBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WhisperBackend.swift; sourceTree = "<group>"; };
+		A8EBF7DC9C8997CBA80C4C09 /* TranscriptPopup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranscriptPopup.swift; sourceTree = "<group>"; };
 		ABCA2DFD3C228F1BDE70C3A1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		BF9427E8DC45ABFC1D834C1B /* OllamaBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OllamaBackend.swift; sourceTree = "<group>"; };
 		C4BBE71B4DCC7768B65A2A0B /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
 		F1C4027BF0B6C19434544588 /* ListeningHUD.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ListeningHUD.swift; sourceTree = "<group>"; };
 		F372CCAFF71C1B5ADA05C993 /* PermissionsManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PermissionsManager.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		61FF2000C6864A243AF6F100 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6C1FC42A5794F9196166A923 /* WhisperKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		128A8E1C1A93B92011BCAAE9 /* Gemmur */ = {
@@ -55,6 +71,8 @@
 				ABCA2DFD3C228F1BDE70C3A1 /* SettingsView.swift */,
 				92948AA079178686164FE0BE /* TextInserter.swift */,
 				2EB980FCB753DC88629D872F /* TranscriptionBackend.swift */,
+				A8EBF7DC9C8997CBA80C4C09 /* TranscriptPopup.swift */,
+				A82AA52E66AF75412D382426 /* WhisperBackend.swift */,
 			);
 			path = Gemmur;
 			sourceTree = "<group>";
@@ -84,6 +102,7 @@
 			buildPhases = (
 				93A8B92572EEF0B5016658B0 /* Sources */,
 				3FD04D04018F81E94FDAEEC3 /* Resources */,
+				61FF2000C6864A243AF6F100 /* Frameworks */,
 			);
 			buildRules = (
 			);
@@ -91,6 +110,7 @@
 			);
 			name = Gemmur;
 			packageProductDependencies = (
+				18242F963CD17437F68C261A /* WhisperKit */,
 			);
 			productName = Gemmur;
 			productReference = 1097CD6FC1850A0C5A9E4DB6 /* Gemmur.app */;
@@ -120,6 +140,9 @@
 			);
 			mainGroup = 63CC44E43846B2693C269116;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				526CFA3F8F2B4C14DA88597C /* XCRemoteSwiftPackageReference "WhisperKit" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7728756F4BC7737BCDF921F1 /* Products */;
 			projectDirPath = "";
@@ -156,7 +179,9 @@
 				66B25D80F1DBF868A98167B3 /* PermissionsManager.swift in Sources */,
 				14F92E08EB63DC71FE4F8DF3 /* SettingsView.swift in Sources */,
 				40649E312F96EE324FAE6630 /* TextInserter.swift in Sources */,
+				9BBAA49DD8A3C4865966A08D /* TranscriptPopup.swift in Sources */,
 				83CE8119FFF9592B27B7FB55 /* TranscriptionBackend.swift in Sources */,
+				FFE1669D5CA5B0432132C621 /* WhisperBackend.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -343,6 +368,25 @@
 			defaultConfigurationName = Debug;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		526CFA3F8F2B4C14DA88597C /* XCRemoteSwiftPackageReference "WhisperKit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/argmaxinc/WhisperKit";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 0.9.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		18242F963CD17437F68C261A /* WhisperKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 526CFA3F8F2B4C14DA88597C /* XCRemoteSwiftPackageReference "WhisperKit" */;
+			productName = WhisperKit;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = BBD2B4CF36459123A0475CBF /* Project object */;
 }

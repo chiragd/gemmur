@@ -6,6 +6,11 @@ options:
   xcodeVersion: "16.0"
   createIntermediateGroups: true
 
+packages:
+  WhisperKit:
+    url: https://github.com/argmaxinc/WhisperKit
+    from: "0.9.0"
+
 settings:
   base:
     PRODUCT_BUNDLE_IDENTIFIER: com.antigravity.gemmur
@@ -35,6 +40,9 @@ targets:
         NSAccessibilityUsageDescription: "Gemmur needs Accessibility access to insert transcribed text into other apps."
         NSAppleEventsUsageDescription: "Gemmur uses System Events to paste transcribed text into apps like Chrome and Terminal."
         LSApplicationCategoryType: public.app-category.productivity
+    dependencies:
+      - package: WhisperKit
+        product: WhisperKit
     settings:
       base:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

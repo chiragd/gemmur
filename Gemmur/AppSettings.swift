@@ -1,17 +1,67 @@
 import SwiftUI
 import ServiceManagement
 
-// MARK: - Model picker
+// MARK: - Inference backend picker
 
-enum OllamaModel: String, CaseIterable, Identifiable {
-    case e2b = "gemma4:e2b"
-    case e4b = "gemma4:e4b"
+enum InferenceBackend: String, CaseIterable, Identifiable {
+    case whisper = "whisper"
+    case ollama  = "ollama"
 
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .e2b: "Gemma 4 E2B (default)"
-        case .e4b: "Gemma 4 E4B (higher quality, slower)"
+        case .whisper: "Whisper + Gemma (recommended)"
+        case .ollama:  "Ollama only"
+        }
+    }
+}
+
+// MARK: - WhisperKit model state
+
+enum WhisperModelState: Equatable {
+    case notLoaded, loading, ready, failed(String)
+
+    static func == (lhs: WhisperModelState, rhs: WhisperModelState) -> Bool {
+        switch (lhs, rhs) {
+        case (.notLoaded, .notLoaded), (.loading, .loading), (.ready, .ready): true
+        case (.failed(let a), .failed(let b)): a == b
+        default: false
+        }
+    }
+}
+
+// MARK: - Whisper model picker
+
+enum WhisperModel: String, CaseIterable, Identifiable {
+    case tinyEn  = "tiny.en"
+    case baseEn  = "base.en"
+    case smallEn = "small.en"
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .tinyEn:  "tiny.en  (~40 MB, fastest)"
+        case .baseEn:  "base.en  (~140 MB, default)"
+        case .smallEn: "small.en (~460 MB, best quality)"
+        }
+    }
+}
+
+// MARK: - Model picker
+
+enum OllamaModel: String, CaseIterable, Identifiable {
+    case gemma3_270m = "gemma3:270m"
+    case gemma3_1b   = "gemma3:1b"
+    case e2b         = "gemma4:e2b"
+    case e4b         = "gemma4:e4b"
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .gemma3_270m: "Gemma 3 270M (fastest)"
+        case .gemma3_1b:   "Gemma 3 1B (fast rewrite)"
+        case .e2b:         "Gemma 4 E2B"
+        case .e4b:         "Gemma 4 E4B (higher quality, slower)"
         }
     }
 }
@@ -75,6 +125,21 @@ final class AppSettings: ObservableObject {
             HotkeyManager.shared.updateHotkey(hotkey)
         }
     }
+    @Published var inferenceBackend: InferenceBackend {
+        didSet { UserDefaults.standard.set(inferenceBackend.rawValue, forKey: "inferenceBackend") }
+    }
+    @Published var whisperModel: WhisperModel {
+        didSet {
+            UserDefaults.standard.set(whisperModel.rawValue, forKey: "whisperModel")
+            onWhisperModelChange?()
+        }
+    }
+    /// Called by AppDelegate to restart WhisperKit warm-up when the model changes.
+    var onWhisperModelChange: (() -> Void)?
+    /// When true, Whisper output is used as-is for all tones (no Ollama rewrite step).
+    @Published var whisperOnly: Bool {
+        didSet { UserDefaults.standard.set(whisperOnly, forKey: "whisperOnly") }
+    }
     @Published var launchAtLogin: Bool {
         didSet {
             UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin")
@@ -82,12 +147,18 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    /// Reflects whether the bundled WhisperKit model is loaded. Updated by AppDelegate.
+    @Published var whisperModelState: WhisperModelState = .notLoaded
+
     private init() {
         let ud = UserDefaults.standard
-        model       = OllamaModel(rawValue: ud.string(forKey: "model") ?? "") ?? .e2b
-        tone        = DictationTone(rawValue: ud.string(forKey: "tone") ?? "") ?? .punctuated
-        hotkey      = HotkeyOption(rawValue: ud.string(forKey: "hotkey") ?? "") ?? .fn
-        launchAtLogin = ud.bool(forKey: "launchAtLogin")
+        model            = OllamaModel(rawValue: ud.string(forKey: "model") ?? "") ?? .e2b
+        tone             = DictationTone(rawValue: ud.string(forKey: "tone") ?? "") ?? .punctuated
+        hotkey           = HotkeyOption(rawValue: ud.string(forKey: "hotkey") ?? "") ?? .fn
+        inferenceBackend = InferenceBackend(rawValue: ud.string(forKey: "inferenceBackend") ?? "") ?? .whisper
+        whisperModel     = WhisperModel(rawValue: ud.string(forKey: "whisperModel") ?? "") ?? .baseEn
+        whisperOnly      = ud.bool(forKey: "whisperOnly")
+        launchAtLogin    = ud.bool(forKey: "launchAtLogin")
     }
 
     // MARK: - Launch at login

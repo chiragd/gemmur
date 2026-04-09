@@ -23,56 +23,103 @@ final class OllamaBackend: TranscriptionBackend {
 
     // MARK: - TranscriptionBackend
 
-    func transcribe(audio: [Float], systemPrompt: String) async throws -> String {
+    func transcribe(audio: [Float], tone: DictationTone) async throws -> String {
         let wavData = WavEncoder.encode(samples: audio, sampleRate: 16_000)
         let b64 = wavData.base64EncodedString()
 
         let body = OllamaChatRequest(
             model: model,
             messages: [
-                .init(role: "system", content: systemPrompt, images: nil),
+                .init(role: "system", content: tone.systemPrompt, images: nil),
                 .init(role: "user",   content: "Transcribe this audio.", images: [b64])
             ],
-            stream: false
+            stream: true
         )
 
-        let url = baseURL.appendingPathComponent("api/chat")
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
+        let transcript = try await streamChat(body, errorHints: true)
+        guard !transcript.isEmpty else { throw BackendError.emptyTranscript }
+        return transcript
+    }
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+    /// Text-only rewrite — used by WhisperBackend for tones that need LLM post-processing.
+    /// - Parameter onPartial: Called on the main actor with the accumulated text after each token.
+    func rewrite(
+        text: String,
+        tone: DictationTone,
+        onPartial: (@Sendable (String) -> Void)? = nil
+    ) async throws -> String {
+        let body = OllamaChatRequest(
+            model: model,
+            messages: [
+                .init(role: "system", content: tone.systemPrompt, images: nil),
+                .init(role: "user",   content: "Rewrite the following transcript:\n\n\(text)", images: nil)
+            ],
+            stream: true
+        )
+
+        let result = try await streamChat(body, errorHints: false, onPartial: onPartial)
+        guard !result.isEmpty else { throw BackendError.emptyTranscript }
+        NSLog("[OllamaBackend] Rewrite complete")
+        return result
+    }
+
+    // MARK: - Streaming helper
+
+    /// Posts a chat request with `stream: true` and accumulates the NDJSON token deltas.
+    /// - Parameters:
+    ///   - errorHints: when true, adds Ollama-specific hints for 400/404 errors.
+    ///   - onPartial: called (fire-and-forget on main actor) with accumulated text after each token.
+    private func streamChat(
+        _ body: OllamaChatRequest,
+        errorHints: Bool,
+        onPartial: (@Sendable (String) -> Void)? = nil
+    ) async throws -> String {
+        let url = baseURL.appendingPathComponent("api/chat")
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        urlRequest.httpBody = try JSONEncoder().encode(body)
+
+        let (asyncBytes, response) = try await URLSession.shared.bytes(for: urlRequest)
 
         guard let http = response as? HTTPURLResponse else {
             throw BackendError.unexpectedResponse("Non-HTTP response.")
         }
 
-        switch http.statusCode {
-        case 200:
-            break
-        case 404:
-            throw BackendError.modelNotFound(model)
-        case 400:
-            // Ollama returns 400 with a message body when audio isn't supported by the build
-            let msg = String(data: data, encoding: .utf8) ?? ""
-            if msg.localizedCaseInsensitiveContains("audio") {
-                throw BackendError.audioUnsupported(
-                    "This Ollama build may not support audio. " +
-                    "Try: ollama pull \(model) and ensure Ollama ≥ 0.6. Detail: \(msg)"
-                )
+        guard http.statusCode == 200 else {
+            // On error Ollama sends a plain JSON body, not a stream — collect it.
+            var errorData = Data()
+            for try await byte in asyncBytes { errorData.append(byte) }
+            let msg = String(data: errorData, encoding: .utf8) ?? ""
+            if errorHints {
+                switch http.statusCode {
+                case 404: throw BackendError.modelNotFound(model)
+                case 400 where msg.localizedCaseInsensitiveContains("audio"):
+                    throw BackendError.audioUnsupported(
+                        "This Ollama build may not support audio. " +
+                        "Try: ollama pull \(model) and ensure Ollama ≥ 0.6. Detail: \(msg)"
+                    )
+                default: break
+                }
             }
-            throw BackendError.unexpectedResponse("HTTP 400: \(msg)")
-        default:
-            let msg = String(data: data, encoding: .utf8) ?? ""
             throw BackendError.unexpectedResponse("HTTP \(http.statusCode): \(msg)")
         }
 
-        let decoded = try JSONDecoder().decode(OllamaChatResponse.self, from: data)
-        let transcript = decoded.message.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        var result = ""
+        for try await line in asyncBytes.lines {
+            guard !line.isEmpty,
+                  let data = line.data(using: .utf8),
+                  let chunk = try? JSONDecoder().decode(OllamaStreamChunk.self, from: data)
+            else { continue }
+            result += chunk.message.content
+            if let onPartial {
+                let snapshot = result
+                Task { @MainActor in onPartial(snapshot) }
+            }
+            if chunk.done { break }
+        }
 
-        guard !transcript.isEmpty else { throw BackendError.emptyTranscript }
-        return transcript
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func checkAvailability() async throws {
@@ -115,9 +162,10 @@ private struct OllamaChatRequest: Encodable {
     let stream: Bool
 }
 
-private struct OllamaChatResponse: Decodable {
-    struct Message: Decodable { let role: String; let content: String }
+private struct OllamaStreamChunk: Decodable {
+    struct Message: Decodable { let content: String }
     let message: Message
+    let done: Bool
 }
 
 // MARK: - WAV encoder

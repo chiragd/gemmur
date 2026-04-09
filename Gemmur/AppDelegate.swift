@@ -7,12 +7,30 @@ import AVFoundation
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem?
     private var settingsWindow: NSWindow?
+    private var whisperBackend: WhisperBackend?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         _ = PermissionsManager.shared  // force init so the poll starts immediately
         setupStatusItem()
         setupHotkey()
+        startWhisperWarmUp()
+        AppSettings.shared.onWhisperModelChange = { [weak self] in self?.startWhisperWarmUp() }
+    }
+
+    // MARK: - Backend management
+
+    private func startWhisperWarmUp() {
+        if whisperBackend == nil { whisperBackend = WhisperBackend() }
+        guard let wb = whisperBackend else { return }
+        let modelName = AppSettings.shared.whisperModel.rawValue
+        Task {
+            do {
+                try await wb.warmUp(model: modelName)
+            } catch {
+                NSLog("[Gemmur] WhisperKit warm-up failed: %@", error.localizedDescription)
+            }
+        }
     }
 
     // MARK: - Hotkey
@@ -67,19 +85,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func handleTranscription(samples: consuming [Float]) async {
         guard !samples.isEmpty else { return }
         let settings = AppSettings.shared
-        let backend = OllamaBackend(model: settings.model.rawValue)
         NSLog("[Gemmur] Captured %d samples (%.1fs) — transcribing…",
               samples.count, Double(samples.count) / 16_000)
 
+        // Pick backend: use WhisperKit if selected and ready, otherwise fall back to Ollama.
+        let backend: any TranscriptionBackend
+        if settings.inferenceBackend == .whisper, let wb = whisperBackend, wb.isReady {
+            NSLog("[Gemmur] Using WhisperKit backend")
+            // Stream partial results into the popup as they arrive.
+            wb.onPartialTranscript = { partial in
+                Task { @MainActor in
+                    ListeningHUD.shared.hide()
+                    TranscriptPopup.shared.update(transcript: partial)
+                }
+            }
+            backend = wb
+        } else {
+            if settings.inferenceBackend == .whisper {
+                NSLog("[Gemmur] WhisperKit not ready yet — falling back to Ollama")
+            }
+            backend = OllamaBackend(model: settings.model.rawValue)
+        }
+
         do {
             let transcript = try await backend.transcribe(
-                audio: consume samples,   // transfer ownership; buffer freed before Ollama call returns
-                systemPrompt: settings.tone.systemPrompt
+                audio: consume samples,   // transfer ownership; buffer freed before inference returns
+                tone: settings.tone
             )
+            whisperBackend?.onPartialTranscript = nil
             NSLog("[Gemmur] Transcript: %@", transcript)
             ListeningHUD.shared.hide()
             await TextInserter.shared.insert(transcript)
+            TranscriptPopup.shared.show(transcript: transcript)
         } catch {
+            whisperBackend?.onPartialTranscript = nil
             ListeningHUD.shared.hide()
             NSLog("[Gemmur] Transcription error: %@", error.localizedDescription)
             showErrorBanner(error.localizedDescription)

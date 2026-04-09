@@ -6,9 +6,9 @@ protocol TranscriptionBackend: Sendable {
     /// Transcribe raw 16 kHz mono float32 PCM samples.
     /// - Parameters:
     ///   - audio: Float32 PCM samples at 16 kHz, mono.
-    ///   - systemPrompt: Dictation instruction (controls tone / verbatim vs. cleaned-up).
+    ///   - tone: Dictation tone controlling style and post-processing.
     /// - Returns: Transcribed string, ready to insert.
-    func transcribe(audio: [Float], systemPrompt: String) async throws -> String
+    func transcribe(audio: [Float], tone: DictationTone) async throws -> String
 
     /// Verify the backend is reachable and the required model is available.
     /// Throws a descriptive `BackendError` if not ready.
@@ -50,6 +50,14 @@ enum DictationTone: String, CaseIterable, Identifiable {
     case casual       = "Casual"
 
     var id: String { rawValue }
+
+    /// Tones that require an LLM rewrite pass after raw Whisper transcription.
+    var needsLLMRewrite: Bool {
+        switch self {
+        case .verbatim, .punctuated: false
+        case .cleanedUp, .formalEmail, .casual: true
+        }
+    }
 
     var systemPrompt: String {
         switch self {
