@@ -40,7 +40,7 @@ final class ListeningHUD {
         let view = HUDView(mode: .listening)
         let hosting = NSHostingView(rootView: view)
         let p = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 350, height: 44),
+            contentRect: NSRect(x: 0, y: 0, width: 525, height: 44),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false

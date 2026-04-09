@@ -20,6 +20,8 @@ final class HotkeyManager: @unchecked Sendable {
 
     var onKeyDown: (@MainActor () -> Void)?
     var onKeyUp: (@MainActor () -> Void)?
+    /// Set while a transcription is in progress. If set, Esc keyDown is consumed and this is called.
+    var onEscPress: (@MainActor () -> Void)?
 
     // MARK: - Private state
 
@@ -107,6 +109,13 @@ final class HotkeyManager: @unchecked Sendable {
         let hotkey = manager.currentHotkey
 
         let keyCode = CGKeyCode(event.getIntegerValueField(.keyboardEventKeycode))
+
+        // ── Esc: cancel in-progress transcription ────────────────────────────────
+        if type == .keyDown && keyCode == 53 && manager.onEscPress != nil {
+            let handler = manager.onEscPress
+            DispatchQueue.main.async { handler?() }
+            return nil // consume — don't let Esc reach the focused app
+        }
 
         // ── Path A: flagsChanged (most Macs, modifier keys including Fn) ──────────
         if type == .flagsChanged {

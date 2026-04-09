@@ -9,6 +9,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var settingsWindow: NSWindow?
     private var whisperBackend: WhisperBackend?
     private var mlxBackend: MLXRewriteBackend?
+    private var transcriptionTask: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -66,7 +67,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         // Auto-stop handler (30s cap) — fires transcription same as manual key release
         capture.onAutoStop = { samples in
             hud.hide()
-            Task { await self.handleTranscription(samples: samples) }
+            hotkey.onEscPress = { [weak self] in self?.cancelTranscription() }
+            self.transcriptionTask = Task {
+                await self.handleTranscription(samples: samples)
+                self.transcriptionTask = nil
+                HotkeyManager.shared.onEscPress = nil
+            }
         }
 
         hotkey.onKeyDown = {
@@ -89,9 +95,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSLog("[Gemmur] Fn key UP detected")
             var samples = capture.stopRecording()
             hud.show(mode: .processing)   // switch to processing state immediately
-            Task {
+            hotkey.onEscPress = { [weak self] in self?.cancelTranscription() }
+            self.transcriptionTask = Task {
                 await self.handleTranscription(samples: samples)
                 samples = []
+                self.transcriptionTask = nil
+                HotkeyManager.shared.onEscPress = nil
             }
         }
 
@@ -104,6 +113,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     // MARK: - Transcription
+
+    private func cancelTranscription() {
+        transcriptionTask?.cancel()
+        transcriptionTask = nil
+        HotkeyManager.shared.onEscPress = nil
+        whisperBackend?.onPartialTranscript = nil
+        ListeningHUD.shared.hide()
+        TranscriptPopup.shared.hide()
+    }
 
     private func handleTranscription(samples: consuming [Float]) async {
         guard !samples.isEmpty else { return }
