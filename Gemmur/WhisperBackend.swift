@@ -57,7 +57,17 @@ final class WhisperBackend: TranscriptionBackend {
         NSLog("[WhisperBackend] Transcribing %d samples (%.1fs)…",
               audio.count, Double(audio.count) / 16_000)
 
-        let results = try await pipe.transcribe(audioArray: audio)
+        // Build an initial prompt from vocabulary entries so WhisperKit biases toward those spellings.
+        let vocabWords = AppSettings.shared.vocabularyEntries.map(\.word).filter { !$0.isEmpty }
+        var decodeOptions: DecodingOptions? = nil
+        if !vocabWords.isEmpty, let tokenizer = pipe.tokenizer {
+            let prompt = vocabWords.joined(separator: ", ")
+            let tokens = tokenizer.encode(text: prompt)
+            decodeOptions = DecodingOptions(promptTokens: tokens)
+            NSLog("[WhisperBackend] Vocabulary prompt: %@", prompt)
+        }
+
+        let results = try await pipe.transcribe(audioArray: audio, decodeOptions: decodeOptions)
         let rawTranscript = results
             .map(\.text)
             .joined(separator: " ")
@@ -71,8 +81,17 @@ final class WhisperBackend: TranscriptionBackend {
         onPartialTranscript?(rawTranscript)
 
         let backend = AppSettings.shared.inferenceBackend
-        let shouldRewrite = backend.mlxRunsForAllTones
-                         || (tone.needsLLMRewrite && backend.usesMLX)
+        let vocabReplacements = AppSettings.shared.vocabularyEntries.compactMap { e -> (word: String, replacement: String)? in
+            guard let rep = e.replacement, !rep.isEmpty else { return nil }
+            return (e.word, rep)
+        }
+        let wordCount = rawTranscript.split(separator: " ").count
+        let shouldRewrite = (backend.mlxRunsForAllTones || (tone.needsLLMRewrite && backend.usesMLX))
+                         && wordCount > 20
+
+        if wordCount <= 20 && (backend.mlxRunsForAllTones || (tone.needsLLMRewrite && backend.usesMLX)) {
+            NSLog("[WhisperBackend] Skipping MLX rewrite — transcript is %d words (≤20)", wordCount)
+        }
 
         if shouldRewrite {
             guard let mlxBackend, mlxBackend.isReady else {
@@ -82,10 +101,11 @@ final class WhisperBackend: TranscriptionBackend {
             }
             NSLog("[WhisperBackend] Rewriting via MLX (tone: %@)…", tone.rawValue)
             let onPartial = onPartialTranscript
-            return try await mlxBackend.rewrite(text: rawTranscript, tone: tone, onPartial: onPartial)
+            let rewritten = try await mlxBackend.rewrite(text: rawTranscript, tone: tone, onPartial: onPartial)
+            return tone.postProcess(rewritten, vocabularyReplacements: vocabReplacements)
         }
 
-        return rawTranscript
+        return tone.postProcess(rawTranscript, vocabularyReplacements: vocabReplacements)
     }
 
     func checkAvailability() async throws {

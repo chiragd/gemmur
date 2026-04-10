@@ -1,12 +1,12 @@
 import AVFoundation
 
-/// Captures microphone audio as 16 kHz mono float32 PCM — the format Gemma 4 expects.
+/// Captures microphone audio as 16 kHz mono float32 PCM.
 ///
 /// Usage:
 ///   try engine.startRecording()
 ///   let samples = engine.stopRecording()   // call on key release
 ///
-/// The engine also enforces a 30-second hard cap. If the user holds Fn longer,
+/// The engine enforces a 5-minute hard cap. If the user holds the hotkey longer,
 /// `onAutoStop` fires with the accumulated samples so the caller can kick off inference.
 @MainActor
 final class AudioCaptureEngine: ObservableObject {
@@ -17,12 +17,15 @@ final class AudioCaptureEngine: ObservableObject {
 
     @Published private(set) var isRecording = false
     @Published private(set) var elapsedSeconds: Double = 0
+    /// Smoothed audio level in 0…1, updated each tap callback.
+    @Published private(set) var audioLevel: Float = 0
+    /// Rolling history of smoothed levels — newest value last. Max 120 entries (~10s).
+    @Published private(set) var audioHistory: [Float] = []
 
     // MARK: - Configuration
 
     let targetSampleRate: Double = 16_000
-    private let maxDuration: Double = 30.0   // hard cap
-    private let autoChunkAt: Double = 25.0   // warn / auto-stop threshold (unused in v1)
+    private let maxDuration: Double = 300.0  // 5-minute hard cap
 
     // MARK: - Callbacks
 
@@ -59,14 +62,23 @@ final class AudioCaptureEngine: ObservableObject {
             throw CaptureError.converterUnavailable
         }
 
-        inputNode.installTap(onBus: 0, bufferSize: 4096, format: hwFormat) { [weak self] buffer, _ in
-            // This closure runs on the AVAudioEngine's internal audio thread — never touch
-            // @MainActor state here. Do all conversion work inline (nonisolated), then
-            // dispatch only the resulting [Float] to main for safe append.
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: hwFormat) { [weak self] buffer, _ in
+            // Runs on the AVAudioEngine audio thread — no @MainActor state here.
             guard let newSamples = AudioCaptureEngine.convert(buffer: buffer,
                                                               using: converter,
                                                               to: targetFormat) else { return }
-            DispatchQueue.main.async { self?.samples.append(contentsOf: newSamples) }
+            let rms = AudioCaptureEngine.computeRMS(newSamples)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.samples.append(contentsOf: newSamples)
+                // Exponential smoothing: fast attack (α=0.85), slow decay (α=0.15)
+                let smoothed = rms > self.audioLevel
+                    ? 0.85 * rms + 0.15 * self.audioLevel
+                    : 0.15 * rms + 0.85 * self.audioLevel
+                self.audioLevel = smoothed
+                self.audioHistory.append(smoothed)
+                if self.audioHistory.count > 120 { self.audioHistory.removeFirst() }
+            }
         }
 
         engine.prepare()
@@ -89,6 +101,8 @@ final class AudioCaptureEngine: ObservableObject {
 
         isRecording = false
         elapsedSeconds = 0
+        audioLevel = 0
+        audioHistory = []
 
         var result: [Float] = []
         swap(&result, &samples)   // zero-copy hand-off; samples is now empty with no retained capacity
@@ -111,6 +125,13 @@ final class AudioCaptureEngine: ObservableObject {
                 }
             }
         }
+    }
+
+    /// RMS of a float32 PCM buffer, normalised to 0…1. Safe to call from any thread.
+    private static func computeRMS(_ samples: [Float]) -> Float {
+        guard !samples.isEmpty else { return 0 }
+        let sumOfSquares = samples.reduce(0) { $0 + $1 * $1 }
+        return min(1, sqrt(sumOfSquares / Float(samples.count)) * 12) // ×12 scales typical speech levels to 0…1
     }
 
     /// Pure conversion — no actor isolation, safe to call from any thread.

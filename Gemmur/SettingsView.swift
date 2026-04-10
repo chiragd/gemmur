@@ -7,11 +7,14 @@ struct SettingsView: View {
             GeneralSettingsTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
 
+            VocabularySettingsTab()
+                .tabItem { Label("Vocabulary", systemImage: "text.book.closed") }
+
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
         .padding(20)
-        .frame(minWidth: 480, minHeight: 420)
+        .frame(minWidth: 520, minHeight: 420)
     }
 }
 
@@ -275,6 +278,120 @@ private struct SettingsRow<Content: View>: View {
             content()
             Spacer()
         }
+    }
+}
+
+// MARK: - Vocabulary Tab
+
+private struct VocabularySettingsTab: View {
+    @ObservedObject private var settings = AppSettings.shared
+    @State private var newWord = ""
+    @State private var newReplacement = ""
+    @State private var showReplacement = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Help Gemmur recognise names, acronyms, technical terms, and business lingo.")
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            // Input
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    TextField("New word or phrase", text: $newWord)
+                        .textFieldStyle(.roundedBorder)
+
+                    Button(showReplacement ? "Remove replacement" : "Replace with…") {
+                        showReplacement.toggle()
+                        if !showReplacement { newReplacement = "" }
+                    }
+                    .buttonStyle(.bordered)
+
+                    Button("Add") {
+                        addEntry()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(newWord.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .keyboardShortcut(.return, modifiers: [])
+                }
+
+                if showReplacement {
+                    TextField("Replace with…", text: $newReplacement)
+                        .textFieldStyle(.roundedBorder)
+                    Text("Whisper will be guided toward \"\(newWord)\" — this also replaces it in the output with \"\(newReplacement)\".")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(12)
+            .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+
+            // Entry list
+            if settings.vocabularyEntries.isEmpty {
+                Text("No vocabulary entries yet. Add names, acronyms, or any words Gemmur frequently mishears.")
+                    .foregroundStyle(.secondary)
+                    .font(.caption)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 20)
+            } else {
+                ScrollView {
+                    VStack(spacing: 6) {
+                        ForEach(settings.vocabularyEntries) { entry in
+                            VocabularyEntryRow(entry: entry) {
+                                settings.vocabularyEntries.removeAll { $0.id == entry.id }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer()
+        }
+        .padding()
+    }
+
+    private func addEntry() {
+        let word = newWord.trimmingCharacters(in: .whitespaces)
+        guard !word.isEmpty else { return }
+        let rep = newReplacement.trimmingCharacters(in: .whitespaces)
+        settings.vocabularyEntries.append(VocabularyEntry(word: word, replacement: rep.isEmpty ? nil : rep))
+        newWord = ""
+        newReplacement = ""
+        showReplacement = false
+    }
+}
+
+private struct VocabularyEntryRow: View {
+    let entry: VocabularyEntry
+    let onDelete: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(entry.word)
+                .fontWeight(.medium)
+
+            if let replacement = entry.replacement {
+                Image(systemName: "arrow.right")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(replacement)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            Button(action: onDelete) {
+                Image(systemName: "xmark")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .background(Color.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

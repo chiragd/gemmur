@@ -48,13 +48,14 @@ enum DictationTone: String, CaseIterable, Identifiable {
     case cleanedUp    = "Cleaned up"
     case formalEmail  = "Formal email"
     case casual       = "Casual"
+    case bulletList   = "Bullet list"
 
     var id: String { rawValue }
 
     /// Tones that require an LLM rewrite pass after raw Whisper transcription.
     var needsLLMRewrite: Bool {
         switch self {
-        case .verbatim, .punctuated: false
+        case .verbatim, .punctuated, .bulletList: false
         case .cleanedUp, .formalEmail, .casual: true
         }
     }
@@ -84,6 +85,167 @@ enum DictationTone: String, CaseIterable, Identifiable {
             "You are a dictation engine. Transcribe the user's speech in a relaxed, friendly tone. " +
             "Remove filler words and add light punctuation. " +
             "Output only the transcript — no commentary, no quotation marks."
+        case .bulletList:
+            // No LLM rewrite; formatting is applied in post-processing.
+            ""
         }
     }
+}
+
+// MARK: - Post-processing
+
+extension DictationTone {
+    /// Apply tone-specific formatting that doesn't require an LLM (vocab replacement, emoji, bullets).
+    func postProcess(_ text: String, vocabularyReplacements: [(word: String, replacement: String)] = []) -> String {
+        var result = text
+        // Vocabulary replacements first (user-defined, highest priority)
+        for (word, replacement) in vocabularyReplacements {
+            let pattern = "(?i)\\b\(NSRegularExpression.escapedPattern(for: word))\\b"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: replacement)
+            }
+        }
+        result = substituteEmoji(in: result)
+        if self == .bulletList {
+            result = "• " + result + "\n"
+        }
+        return result
+    }
+
+    /// Replace spoken emoji phrases (e.g. "fire emoji") with the actual character.
+    private func substituteEmoji(in text: String) -> String {
+        var result = text
+        for (phrase, emoji) in Self.emojiMap {
+            // Word-boundary aware, case-insensitive
+            let pattern = "(?i)\\b\(NSRegularExpression.escapedPattern(for: phrase))\\b"
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                let range = NSRange(result.startIndex..., in: result)
+                result = regex.stringByReplacingMatches(in: result, range: range, withTemplate: emoji)
+            }
+        }
+        return result
+    }
+
+    private static let emojiMap: [(phrase: String, emoji: String)] = [
+        // Faces
+        ("crying laughing emoji",       "😂"),
+        ("face with tears of joy emoji","😂"),
+        ("laughing crying emoji",       "😂"),
+        ("laughing emoji",              "😄"),
+        ("crying emoji",                "😢"),
+        ("sobbing emoji",               "😭"),
+        ("smiling emoji",               "😊"),
+        ("smile emoji",                 "😊"),
+        ("winking emoji",               "😉"),
+        ("wink emoji",                  "😉"),
+        ("sunglasses emoji",            "😎"),
+        ("cool emoji",                  "😎"),
+        ("thinking emoji",              "🤔"),
+        ("mind blown emoji",            "🤯"),
+        ("exploding head emoji",        "🤯"),
+        ("facepalm emoji",              "🤦"),
+        ("face palm emoji",             "🤦"),
+        ("shrug emoji",                 "🤷"),
+        ("skull emoji",                 "💀"),
+        ("poop emoji",                  "💩"),
+        ("heart eyes emoji",            "😍"),
+        ("kissing emoji",               "😘"),
+        ("nervous emoji",               "😬"),
+        ("grimace emoji",               "😬"),
+        ("sleeping emoji",              "😴"),
+        ("sick emoji",                  "🤒"),
+        ("nerd emoji",                  "🤓"),
+        ("angry emoji",                 "😠"),
+        ("devil emoji",                 "😈"),
+        ("ghost emoji",                 "👻"),
+        ("alien emoji",                 "👽"),
+        ("robot emoji",                 "🤖"),
+        ("clown emoji",                 "🤡"),
+        // Hands & gestures
+        ("thumbs up emoji",             "👍"),
+        ("thumbs down emoji",           "👎"),
+        ("wave emoji",                  "👋"),
+        ("waving emoji",                "👋"),
+        ("clapping emoji",              "👏"),
+        ("clap emoji",                  "👏"),
+        ("prayer emoji",                "🙏"),
+        ("praying emoji",               "🙏"),
+        ("folded hands emoji",          "🙏"),
+        ("muscle emoji",                "💪"),
+        ("flex emoji",                  "💪"),
+        ("point up emoji",              "☝️"),
+        ("finger pointing up emoji",    "☝️"),
+        ("ok hand emoji",               "👌"),
+        ("peace emoji",                 "✌️"),
+        ("rock on emoji",               "🤘"),
+        ("crossed fingers emoji",       "🤞"),
+        // Objects & symbols
+        ("fire emoji",                  "🔥"),
+        ("heart emoji",                 "❤️"),
+        ("red heart emoji",             "❤️"),
+        ("broken heart emoji",          "💔"),
+        ("sparkles emoji",              "✨"),
+        ("star emoji",                  "⭐"),
+        ("hundred emoji",               "💯"),
+        ("hundred percent emoji",       "💯"),
+        ("check emoji",                 "✅"),
+        ("checkmark emoji",             "✅"),
+        ("cross emoji",                 "❌"),
+        ("x emoji",                     "❌"),
+        ("party emoji",                 "🎉"),
+        ("celebration emoji",           "🎉"),
+        ("rocket emoji",                "🚀"),
+        ("money emoji",                 "💰"),
+        ("money bag emoji",             "💰"),
+        ("eyes emoji",                  "👀"),
+        ("rainbow emoji",               "🌈"),
+        ("lightning emoji",             "⚡"),
+        ("bomb emoji",                  "💣"),
+        ("trophy emoji",                "🏆"),
+        ("crown emoji",                 "👑"),
+        ("gem emoji",                   "💎"),
+        ("diamond emoji",               "💎"),
+        ("key emoji",                   "🔑"),
+        ("lock emoji",                  "🔒"),
+        ("bell emoji",                  "🔔"),
+        ("warning emoji",               "⚠️"),
+        ("pin emoji",                   "📌"),
+        ("calendar emoji",              "📅"),
+        ("clock emoji",                 "🕐"),
+        ("hourglass emoji",             "⏳"),
+        ("magnifying glass emoji",      "🔍"),
+        ("light bulb emoji",            "💡"),
+        ("microphone emoji",            "🎤"),
+        ("camera emoji",                "📷"),
+        ("phone emoji",                 "📱"),
+        ("computer emoji",              "💻"),
+        ("email emoji",                 "📧"),
+        ("book emoji",                  "📖"),
+        ("pencil emoji",                "✏️"),
+        ("chart emoji",                 "📈"),
+        ("graph emoji",                 "📈"),
+        ("globe emoji",                 "🌍"),
+        ("earth emoji",                 "🌍"),
+        ("sun emoji",                   "☀️"),
+        ("moon emoji",                  "🌙"),
+        ("snowflake emoji",             "❄️"),
+        ("wave emoji",                  "🌊"),
+        ("tree emoji",                  "🌳"),
+        ("flower emoji",                "🌸"),
+        ("rose emoji",                  "🌹"),
+        ("dog emoji",                   "🐶"),
+        ("cat emoji",                   "🐱"),
+        ("pizza emoji",                 "🍕"),
+        ("coffee emoji",                "☕"),
+        ("beer emoji",                  "🍺"),
+        ("wine emoji",                  "🍷"),
+        ("cake emoji",                  "🎂"),
+        ("muscle car emoji",            "🏎️"),
+        ("car emoji",                   "🚗"),
+        ("plane emoji",                 "✈️"),
+        ("house emoji",                 "🏠"),
+        ("hospital emoji",              "🏥"),
+        ("school emoji",                "🏫"),
+    ]
 }

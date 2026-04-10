@@ -123,6 +123,20 @@ enum HotkeyOption: String, CaseIterable, Identifiable {
     }
 }
 
+// MARK: - Vocabulary
+
+struct VocabularyEntry: Identifiable, Codable {
+    let id: UUID
+    var word: String
+    var replacement: String?   // nil = vocab hint only; non-nil = also replace in output
+
+    init(word: String, replacement: String? = nil) {
+        self.id = UUID()
+        self.word = word
+        self.replacement = replacement
+    }
+}
+
 // MARK: - Settings store
 
 /// Single source of truth for all user-configurable settings.
@@ -174,6 +188,13 @@ final class AppSettings: ObservableObject {
             applyLaunchAtLogin(launchAtLogin)
         }
     }
+    @Published var vocabularyEntries: [VocabularyEntry] {
+        didSet {
+            if let data = try? JSONEncoder().encode(vocabularyEntries) {
+                UserDefaults.standard.set(data, forKey: "vocabularyEntries")
+            }
+        }
+    }
 
     /// Reflects whether the bundled WhisperKit model is loaded. Updated by AppDelegate.
     @Published var whisperModelState: WhisperModelState = .notLoaded
@@ -188,6 +209,12 @@ final class AppSettings: ObservableObject {
         inferenceBackend = InferenceBackend(rawValue: ud.string(forKey: "inferenceBackend") ?? "") ?? .voiceAndAI
         whisperModel     = WhisperModel(rawValue: ud.string(forKey: "whisperModel") ?? "") ?? .baseEn
         launchAtLogin    = ud.bool(forKey: "launchAtLogin")
+        if let data = ud.data(forKey: "vocabularyEntries"),
+           let entries = try? JSONDecoder().decode([VocabularyEntry].self, from: data) {
+            vocabularyEntries = entries
+        } else {
+            vocabularyEntries = []
+        }
     }
 
     // MARK: - Launch at login

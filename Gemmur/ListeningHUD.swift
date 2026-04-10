@@ -82,33 +82,73 @@ struct HUDView: View {
     @ObservedObject private var capture = AudioCaptureEngine.shared
 
     var body: some View {
-        HStack(spacing: 8) {
-            PulsingDot(color: dotColor)
+        HStack(spacing: 12) {
+            if mode == .listening {
+                ScrollingWaveform(history: capture.audioHistory)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 30)
+            } else {
+                PulsingDot(color: .blue)
+            }
             Text(label)
                 .font(.system(size: 13, weight: .medium, design: .rounded))
                 .foregroundStyle(.primary)
+                .fixedSize()
         }
-        .padding(.horizontal, 14)
+        .padding(.horizontal, 16)
         .padding(.vertical, 10)
-        .frame(minWidth: 525)
+        .frame(minWidth: 420)
         .background(.regularMaterial, in: Capsule())
-    }
-
-    private var dotColor: Color {
-        switch mode {
-        case .listening:  .red
-        case .processing: .blue
-        }
     }
 
     private var label: String {
         switch mode {
         case .listening:
             if capture.elapsedSeconds < 1 { return "Listening…" }
-            let remaining = max(0, 30 - Int(capture.elapsedSeconds))
-            return "Listening… \(remaining)s"
+            let elapsed = Int(capture.elapsedSeconds)
+            let m = elapsed / 60
+            let s = elapsed % 60
+            let time = m > 0 ? "\(m):\(String(format: "%02d", s))" : "\(s)s"
+            return "Listening… \(time)"
         case .processing:
             return "Processing…"
+        }
+    }
+}
+
+// MARK: - Scrolling waveform
+
+/// Renders the rolling audio level history as a bank of thin symmetric bars.
+/// Newer bars appear on the right; older bars fade toward the left.
+private struct ScrollingWaveform: View {
+    let history: [Float]
+
+    var body: some View {
+        Canvas { context, size in
+            let barWidth: CGFloat = 2.5
+            let gap: CGFloat = 1.5
+            let step = barWidth + gap
+            let totalBars = max(1, Int(size.width / step))
+            let centerY = size.height / 2
+            let maxHalf = size.height / 2 - 1   // 1pt breathing room
+
+            for i in 0..<totalBars {
+                // Map bar slot to history index (newest = rightmost)
+                let histIdx = history.count - totalBars + i
+                let level: CGFloat = histIdx >= 0 ? CGFloat(history[histIdx]) : 0
+
+                // Minimum idle height so the bar is always faintly visible
+                let half = max(1.5, maxHalf * level)
+
+                let x = CGFloat(i) * step
+                let rect = CGRect(x: x, y: centerY - half, width: barWidth, height: half * 2)
+                let path = Path(roundedRect: rect, cornerRadius: 1)
+
+                // Fade older (left) bars; newest bars are fully opaque
+                let progress = CGFloat(i + 1) / CGFloat(totalBars)
+                let opacity = 0.2 + 0.8 * progress
+                context.fill(path, with: .color(Color.primary.opacity(opacity)))
+            }
         }
     }
 }
